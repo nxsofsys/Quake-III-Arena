@@ -331,6 +331,7 @@ FS_PakIsPure
 =================
 */
 qboolean FS_PakIsPure( pack_t *pack ) {
+	/*
 	int i;
 
 	if ( fs_numServerPaks ) {
@@ -344,6 +345,7 @@ qboolean FS_PakIsPure( pack_t *pack ) {
 		}
 		return qfalse;	// not on the pure server pak list
 	}
+	*/
 	return qtrue;
 }
 
@@ -3052,6 +3054,19 @@ const char *FS_ReferencedPakPureChecksums( void ) {
 		for ( search = fs_searchpaths ; search ; search = search->next ) {
 			// is the element a pak file and has it been referenced based on flag?
 			if ( search->pack && (search->pack->referenced & nFlags)) {
+
+		        if ( fs_numServerPaks ) {
+		          qboolean pure = qfalse;
+				  int i;
+		          for ( i = 0 ; i < fs_numServerPaks ; i++ ) {
+		            if ( search->pack->checksum == fs_serverPaks[i] ) {
+		              pure = qtrue;
+		            }
+		          }
+		          if (!pure)
+		            continue;
+		        }
+
 				Q_strcat( info, sizeof( info ), va("%i ", search->pack->pure_checksum ) );
 				if (nFlags & (FS_CGAME_REF | FS_UI_REF)) {
 					break;

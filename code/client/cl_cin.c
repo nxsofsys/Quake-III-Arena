@@ -1587,7 +1587,7 @@ SCR_DrawCinematic
 ==================
 */
 void CIN_DrawCinematic (int handle) {
-	float	x, y, w, h;
+	float	x, y, w, h, xscale, yscale;
 	byte	*buf;
 
 	if (handle < 0 || handle>= MAX_VIDEO_HANDLES || cinTable[handle].status == FMV_EOF) return;
@@ -1601,7 +1601,12 @@ void CIN_DrawCinematic (int handle) {
 	w = cinTable[handle].width;
 	h = cinTable[handle].height;
 	buf = cinTable[handle].buf;
-	SCR_AdjustFrom640( &x, &y, &w, &h );
+
+	xscale = yscale = cls.glconfig.vidHeight / 480.0;
+	w *= xscale;
+	h *= yscale;
+	x = 0.5 * (cls.glconfig.vidWidth - w);
+	y *= yscale;
 
 	if (cinTable[handle].dirty && (cinTable[handle].CIN_WIDTH != cinTable[handle].drawX || cinTable[handle].CIN_HEIGHT != cinTable[handle].drawY)) {
 		int ix, iy, *buf2, *buf3, xm, ym, ll;

@@ -25,6 +25,13 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "../client/client.h"
 #include "win_local.h"
 
+#ifndef HID_USAGE_GENERIC_MOUSE
+#define HID_USAGE_GENERIC_MOUSE        ((USHORT) 0x02)
+#endif
+
+#ifndef HID_USAGE_PAGE_GENERIC
+#define HID_USAGE_PAGE_GENERIC         ((USHORT) 0x01)
+#endif
 
 typedef struct {
 	int			oldButtonState;
@@ -182,7 +189,173 @@ void IN_Win32Mouse( int *mx, int *my ) {
 	*mx = current_pos.x - window_center_x;
 	*my = current_pos.y - window_center_y;
 }
+/*
+============================================================
 
+RAW INPUT MOUSE CONTROL
+
+============================================================
+*/
+
+#define ISWINXP(sys) (sys.dwPlatformId==VER_PLATFORM_WIN32_NT && \
+	((sys.dwMajorVersion==5 && sys.dwMinorVersion>=1)||(sys.dwMajorVersion>5)))
+
+typedef UINT(WINAPI *PGRRID)(PRAWINPUTDEVICE pRawInputDevices, PUINT puiNumDevices, UINT cbSize);
+typedef BOOL(WINAPI *PRRID)(PCRAWINPUTDEVICE pRawInputDevices, UINT uiNumDevices, UINT cbSize);
+typedef UINT(WINAPI *PGRID)(HRAWINPUT hRawInput, UINT uiCommand, LPVOID pData, PUINT pcbSize, UINT cbSizeHeader);
+
+PGRRID	GRRID;
+PRRID	RRID;
+PGRID	GRID;
+
+int		raw_inited = 0;
+int		raw_activated = 0;
+
+POINT	cur_pos; // to store previous cursor position
+
+/*
+================
+IN_InitRawMouse
+================
+*/
+
+static BOOL IN_InitRawMouse(void) {
+
+	HMODULE dll;
+
+	if (!ISWINXP(g_wv.osversion)) {
+		return FALSE; // operating system is not supported
+	}
+
+	if (raw_inited) {
+		return TRUE; // already inited
+	}
+
+	GRRID = NULL;
+	RRID = NULL;
+	GRID = NULL;
+
+	dll = GetModuleHandle("user32"); // should always success
+	if (!dll) {
+		return FALSE;
+	}
+
+	GRRID = (PGRRID)GetProcAddress(dll, "GetRegisteredRawInputDevices");
+	RRID = (PRRID)GetProcAddress(dll, "RegisterRawInputDevices");
+	GRID = (PGRID)GetProcAddress(dll, "GetRawInputData");
+
+	CloseHandle(dll);
+
+	if (!GRRID || !RRID || !GRID) {
+		return FALSE;
+	}
+
+	raw_inited = 1;
+	return TRUE;
+}
+
+
+/*
+================
+IN_ShutdownRawMouse
+================
+*/
+
+void IN_ShutdownRawMouse(void) {
+	//Com_Printf("IN_ShutdownRawMouse\n");
+	s_wmv.mouseInitialized = qfalse;
+	raw_activated = 0;
+	raw_inited = 0;
+}
+
+
+/*
+================
+IN_ActivateRawMouse
+================
+*/
+void IN_ActivateRawMouse(void)
+{
+	RECT		window_rect;
+	RAWINPUTDEVICE Rid[1];
+	UINT num;
+	int cnt, width, height;
+
+	if (raw_activated)
+	{
+		return; // already activated
+	}
+
+	width = GetSystemMetrics(SM_CXSCREEN);
+	height = GetSystemMetrics(SM_CYSCREEN);
+
+	GetWindowRect(g_wv.hWnd, &window_rect);
+	if (window_rect.left < 0)
+		window_rect.left = 0;
+	if (window_rect.top < 0)
+		window_rect.top = 0;
+	if (window_rect.right >= width)
+		window_rect.right = width - 1;
+	if (window_rect.bottom >= height - 1)
+		window_rect.bottom = height - 1;
+	window_center_x = (window_rect.right + window_rect.left) / 2;
+	window_center_y = (window_rect.top + window_rect.bottom) / 2;
+
+	num = 1;
+	cnt = GRRID(&Rid[0], &num, sizeof(Rid[0]));
+	if (cnt < 0 || !g_wv.hWnd)
+	{
+		return; // error getting registered raw input devices
+	}
+
+	GetCursorPos(&cur_pos);
+
+	// not yet activated
+
+	if (cnt >= 1 && Rid[0].hwndTarget == g_wv.hWnd)
+	{
+		// device already exists
+		while (ShowCursor(FALSE) >= 0)
+			;
+		SetCursorPos(window_center_x, window_center_y);
+		SetCapture(g_wv.hWnd);
+		ClipCursor(&window_rect);
+		raw_activated = 1;
+		return;
+	}
+
+	Rid[0].usUsagePage = HID_USAGE_PAGE_GENERIC;
+	Rid[0].usUsage = HID_USAGE_GENERIC_MOUSE;
+	Rid[0].dwFlags = RIDEV_INPUTSINK;
+	Rid[0].hwndTarget = g_wv.hWnd;
+	if (!RRID(Rid, 1, sizeof(Rid[0])))
+	{
+		Com_Printf(S_COLOR_YELLOW "Error registering raw input device\n");
+		return;
+	}
+
+	SetCapture(g_wv.hWnd);
+	ClipCursor(&window_rect);
+	while (ShowCursor(FALSE) >= 0)
+		;
+	SetCursorPos(window_center_x, window_center_y);
+
+	raw_activated = 1; // success
+}
+
+
+/*
+================
+IN_DeactivateRawMouse
+
+All work is performed in In_DeactivateWin32Mouse()
+and there are no special API calls to disable raw input
+================
+*/
+void IN_DeactivateRawMouse(void)
+{
+	raw_activated = 0;
+}
 
 /*
 ============================================================
@@ -519,7 +692,11 @@ void IN_ActivateMouse( void )
 	s_wmv.mouseActive = qtrue;
 
 	if ( in_mouse->integer != -1 ) {
-		IN_ActivateDIMouse();
+		if ( raw_inited )
+  			IN_ActivateRawMouse();
+        else
+			IN_ActivateDIMouse();
+		return;
 	}
 	IN_ActivateWin32Mouse();
 }
@@ -543,6 +720,7 @@ void IN_DeactivateMouse( void ) {
 
 	IN_DeactivateDIMouse();
 	IN_DeactivateWin32Mouse();
+	IN_DeactivateRawMouse();
 }
 
 
@@ -579,10 +757,17 @@ void IN_StartupMouse( void )
       s_wmv.mouseStartupDelayed = qtrue;
       return;
     }
+		if (IN_InitRawMouse()) {
+			s_wmv.mouseInitialized = qtrue;
+			Com_Printf("Raw mouse input initialized.\n");
+			return;
+		}
+
 		if ( IN_InitDIMouse() ) {
 	    s_wmv.mouseInitialized = qtrue;
 			return;
 		}
+
 		Com_Printf ("Falling back to Win32 mouse support...\n");
 	}
 	s_wmv.mouseInitialized = qtrue;
@@ -632,7 +817,13 @@ void IN_MouseMove ( void ) {
 	if ( g_pMouse ) {
 		IN_DIMouse( &mx, &my );
 	} else {
-		IN_Win32Mouse( &mx, &my );
+		if (raw_activated) {
+			SetCursorPos(window_center_x, window_center_y);
+			return;
+		}
+		else {
+			IN_Win32Mouse(&mx, &my);
+		}
 	}
 
 	if ( !mx && !my ) {

@@ -223,6 +223,11 @@ main window procedure
 */
 extern cvar_t *in_mouse;
 extern cvar_t *in_logitechbug;
+
+// raw input externals
+extern UINT (WINAPI *GRID)(HRAWINPUT hRawInput, UINT uiCommand, LPVOID pData, PUINT pcbSize, UINT cbSizeHeader);
+extern int raw_activated;
+
 LONG WINAPI MainWndProc (
     HWND    hWnd,
     UINT    uMsg,
@@ -405,6 +410,9 @@ LONG WINAPI MainWndProc (
 	case WM_MOUSEMOVE:
 		{
 			int	temp;
+			
+			if ( raw_activated ) 
+                break;
 
 			temp = 0;
 
@@ -418,6 +426,74 @@ LONG WINAPI MainWndProc (
 				temp |= 4;
 
 			IN_MouseEvent (temp);
+		}
+		break;
+	case WM_INPUT:
+        {
+			union {
+				BYTE lpb[40];
+				RAWINPUT raw;
+			} u;
+
+			UINT dwSize;
+			UINT err;
+			short data;
+
+			if ( !raw_activated /* || !s_wmv.mouseInitialized */ )
+                break;
+
+			dwSize = sizeof( u.raw );
+
+			err = GRID( (HRAWINPUT)lParam, RID_INPUT, &u.raw, &dwSize, sizeof( RAWINPUTHEADER ) );
+			if ( err == -1 )
+				break;
+
+			if ( u.raw.header.dwType != RIM_TYPEMOUSE || u.raw.data.mouse.usFlags != MOUSE_MOVE_RELATIVE )
+				break;
+
+			if ( u.raw.data.mouse.lLastX || u.raw.data.mouse.lLastY )
+				Sys_QueEvent( g_wv.sysMsgTime, SE_MOUSE, u.raw.data.mouse.lLastX,
+					u.raw.data.mouse.lLastY, 0, NULL );
+
+			if ( !u.raw.data.mouse.usButtonFlags )
+				break;
+
+			#define CHECK_RAW_BUTTON(button) \
+				if ( u.raw.data.mouse.usButtonFlags & RI_MOUSE_BUTTON_##button##_DOWN ) \
+					Sys_QueEvent( g_wv.sysMsgTime, SE_KEY, K_MOUSE##button##, qtrue, 0, NULL ); \
+				if ( u.raw.data.mouse.usButtonFlags & RI_MOUSE_BUTTON_##button##_UP ) \
+					Sys_QueEvent( g_wv.sysMsgTime, SE_KEY, K_MOUSE##button##, qfalse, 0, NULL )
+
+			CHECK_RAW_BUTTON(1);
+			CHECK_RAW_BUTTON(2);
+			CHECK_RAW_BUTTON(3);
+			CHECK_RAW_BUTTON(4);
+			CHECK_RAW_BUTTON(5);
+
+			if ( !(u.raw.data.mouse.usButtonFlags & RI_MOUSE_WHEEL) )
+				break;
+
+			data = u.raw.data.mouse.usButtonData;
+
+			data = data / 120;
+			if ( data > 0 )
+			{
+				while( data > 0 )
+				{
+					Sys_QueEvent( g_wv.sysMsgTime, SE_KEY, K_MWHEELUP, qtrue, 0, NULL );
+					Sys_QueEvent( g_wv.sysMsgTime, SE_KEY, K_MWHEELUP, qfalse, 0, NULL );
+					data--;
+				}
+			}
+			else
+			{
+				while( data < 0 )
+				{
+					Sys_QueEvent( g_wv.sysMsgTime, SE_KEY, K_MWHEELDOWN, qtrue, 0, NULL );
+					Sys_QueEvent( g_wv.sysMsgTime, SE_KEY, K_MWHEELDOWN, qfalse, 0, NULL );
+					data++;
+				}
+           }
 		}
 		break;
 

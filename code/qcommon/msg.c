@@ -441,9 +441,11 @@ char *MSG_ReadString( msg_t *msg ) {
 			c = '.';
 		}
 		// don't allow higher ascii values
+		/*
 		if ( c > 127 ) {
 			c = '.';
 		}
+		*/
 
 		string[l] = c;
 		l++;

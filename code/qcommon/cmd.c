@@ -440,7 +440,7 @@ will point into this temporary buffer.
 // NOTE TTimo define that to track tokenization issues
 //#define TKN_DBG
 void Cmd_TokenizeString( const char *text_in ) {
-	const char	*text;
+	const unsigned char	*text;
 	char	*textOut;
 
 #ifdef TKN_DBG

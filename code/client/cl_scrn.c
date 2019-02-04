@@ -442,8 +442,11 @@ void SCR_DrawScreenField( stereoFrame_t stereoFrame ) {
 	// unless they are displaying game renderings
 	if ( cls.state != CA_ACTIVE ) {
 		if ( cls.glconfig.vidWidth * 480 > cls.glconfig.vidHeight * 640 ) {
+			int clw;
+			clw = 0.5 * (cls.glconfig.vidWidth - 640 * cls.glconfig.vidHeight / 480.0);
 			re.SetColor( g_color_table[0] );
-			re.DrawStretchPic( 0, 0, cls.glconfig.vidWidth, cls.glconfig.vidHeight, 0, 0, 0, 0, cls.whiteShader );
+			re.DrawStretchPic( 0, 0, clw, cls.glconfig.vidHeight, 0, 0, 0, 0, cls.whiteShader );
+			re.DrawStretchPic( cls.glconfig.vidWidth - clw, 0, clw, cls.glconfig.vidHeight, 0, 0, 0, 0, cls.whiteShader );
 			re.SetColor( NULL );
 		}
 	}
